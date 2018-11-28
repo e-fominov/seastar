@@ -35,6 +35,7 @@
 #include <limits>
 #include <cctype>
 #include <vector>
+#include <boost/lexical_cast.hpp>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/reply.hh>
 
@@ -228,6 +229,22 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     sstring version = req->_version;
     set_headers(*resp);
     resp->set_version(version);
+
+    it = req->_headers.find("Content-Length");
+    if (it != req->_headers.end()) {
+        uint64_t content_length = boost::lexical_cast<uint64_t>(it->second.data(), it->second.size());
+        return _read_buf.read_exactly(content_length).then([this, should_close, version=std::move(version), url=std::move(url), req=std::move(req), resp=std::move(resp)] (temporary_buffer<char> buff) mutable -> future<bool> {
+            req->content = sstring(buff.begin(), buff.size());
+            return _server._routes.handle(url, std::move(req), std::move(resp)).
+                // Caller guarantees enough room
+                then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {
+                    rep->set_version(version).done();
+                    this->_replies.push(std::move(rep));
+                    return make_ready_future<bool>(should_close);
+                });
+        });
+    }
+    
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {
