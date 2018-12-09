@@ -56,6 +56,8 @@
 #include <rte_cycles.h>
 #include <rte_memzone.h>
 #include <rte_eth_bond.h>
+#include "rte_byteorder.h"
+#include "rte_cpuflags.h"
 
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
@@ -323,7 +325,7 @@ class dpdk_device : public device {
     bool _is_i40e_device = false;
     bool _is_vmxnet3_device = false;
     dpdk_xstats _xstats;
-    std::vector<std::unique_ptr<dpdk_device>> _bond_slaves;
+    std::vector<uint8_t> _bond_slaves;
 
 public:
     rte_eth_dev_info _dev_info = {};
@@ -481,7 +483,7 @@ public:
                             sm::description("Counts a total number of egress errors. A non-zero value usually indicated a problem with a HW or a SW driver."), {sm::shard_label(_stats_plugin_inst)}),
         });
     }
-    dpdk_device(uint16_t num_queues, bool use_lro, bool enable_fc, std::vector<std::unique_ptr<dpdk_device>>&& bond_slaves)
+    dpdk_device(uint16_t num_queues, bool use_lro, bool enable_fc, std::vector<uint8_t>&& bond_slaves)
         : _port_idx(0)
         , _num_queues(num_queues)
         , _home_cpu(engine().cpu_id())
@@ -2074,9 +2076,9 @@ void dpdk_device::init_port_fini()
     else
     {
         for (int i = 0; i < _bond_slaves.size(); i++) {
-                if (rte_eth_bond_slave_add(_port_idx, _bond_slaves[i]->port_idx()) == -1)
+                if (rte_eth_bond_slave_add(_port_idx, _bond_slaves[i]) == -1)
                         rte_exit(-1, "Oooops! adding slave (%u) to bond (%u) failed!\n",
-                                        _bond_slaves[i]->port_idx(), _port_idx);
+                                        _bond_slaves[i], _port_idx);
         }
     
     }
@@ -2602,6 +2604,67 @@ std::unique_ptr<qp> dpdk_device::init_local_queue(boost::program_options::variab
 } // namespace dpdk
 
 /******************************** Interface functions *************************/
+#define RTE_RX_DESC_DEFAULT 1024
+#define RTE_TX_DESC_DEFAULT 1024
+static struct rte_eth_conf port_conf = {};
+
+#define PRINT_MAC(addr)		printf("%02"PRIx8":%02"PRIx8":%02"PRIx8 \
+		":%02"PRIx8":%02"PRIx8":%02"PRIx8,	\
+		addr.addr_bytes[0], addr.addr_bytes[1], addr.addr_bytes[2], \
+		addr.addr_bytes[3], addr.addr_bytes[4], addr.addr_bytes[5])
+
+
+#define NB_MBUF   (1024*8)
+
+static void
+slave_port_init(uint16_t portid, struct rte_mempool *mbuf_pool)
+{
+    port_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
+    port_conf.rxmode.max_rx_pkt_len = ETHER_MAX_LEN;
+    port_conf.rxmode.split_hdr_size = 0;
+
+    port_conf.rx_adv_conf.rss_conf.rss_key = NULL;
+    port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP;
+    port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
+	int retval;
+
+	if (portid >= rte_eth_dev_count())
+		rte_exit(EXIT_FAILURE, "Invalid port\n");
+
+	retval = rte_eth_dev_configure(portid, 1, 1, &port_conf);
+	if (retval != 0)
+		rte_exit(EXIT_FAILURE, "port %u: configuration failed (res=%d)\n",
+				portid, retval);
+
+	/* RX setup */
+	retval = rte_eth_rx_queue_setup(portid, 0, RTE_RX_DESC_DEFAULT,
+					rte_eth_dev_socket_id(portid), NULL,
+					mbuf_pool);
+	if (retval < 0)
+		rte_exit(retval, " port %u: RX queue 0 setup failed (res=%d)",
+				portid, retval);
+
+	/* TX setup */
+	retval = rte_eth_tx_queue_setup(portid, 0, RTE_TX_DESC_DEFAULT,
+				rte_eth_dev_socket_id(portid), NULL);
+
+	if (retval < 0)
+		rte_exit(retval, "port %u: TX queue 0 setup failed (res=%d)",
+				portid, retval);
+
+	retval  = rte_eth_dev_start(portid);
+	if (retval < 0)
+		rte_exit(retval,
+				"Start port %d failed (res=%d)",
+				portid, retval);
+
+	struct ether_addr addr;
+
+	rte_eth_macaddr_get(portid, &addr);
+	printf("Port %u MAC: ", (unsigned)portid);
+	PRINT_MAC(addr);
+	printf("\n");
+}
 
 std::unique_ptr<net::device> create_dpdk_net_device(
                                     uint8_t port_idx,
@@ -2630,10 +2693,19 @@ std::unique_ptr<net::device> create_dpdk_net_device(
     else
     {
         printf("Creating bonded device");
-        std::vector<std::unique_ptr<dpdk::dpdk_device>> devices;
-        devices.reserve(count);
+        std::vector<uint8_t> devices;
+        devices.resize(count);
+
+        rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", NB_MBUF, 32,
+                0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+        if (mbuf_pool == NULL)
+                rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
+
         for (int i = 0; i < count; ++i)
-            devices.push_back(std::make_unique<dpdk::dpdk_device>(i, num_queues, use_lro, enable_fc));
+        {
+            slave_port_init(i, mbuf_pool);
+            devices[i] = i;
+        }
         
         return std::make_unique<dpdk::dpdk_device>(num_queues, use_lro, enable_fc, std::move(devices));
     }
