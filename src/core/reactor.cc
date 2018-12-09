@@ -120,6 +120,8 @@
 #include <typeinfo>
 #endif
 
+int hello_native_stack();
+
 namespace seastar {
 
 struct mountpoint_params {
@@ -4813,6 +4815,7 @@ network_stack_registrator nsr_posix{"posix",
     },
     true
 };
+int hello_native_stack_rec = hello_native_stack();
 
 reactor::sched_clock::duration reactor::total_idle_time() {
     return _total_idle;

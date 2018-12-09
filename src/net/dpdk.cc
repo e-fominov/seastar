@@ -55,6 +55,7 @@
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
 #include <rte_memzone.h>
+#include <rte_eth_bond.h>
 
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
@@ -322,6 +323,7 @@ class dpdk_device : public device {
     bool _is_i40e_device = false;
     bool _is_vmxnet3_device = false;
     dpdk_xstats _xstats;
+    std::vector<std::unique_ptr<dpdk_device>> _bond_slaves;
 
 public:
     rte_eth_dev_info _dev_info = {};
@@ -349,6 +351,13 @@ private:
      *         error.
      */
     int init_port_start();
+    /**
+     * First stage of the port initialization on bonded mode.
+     *
+     * @return 0 in case of success and an appropriate error code in case of an
+     *         error.
+     */
+    int init_bond_port_start();
 
     /**
      * The final stage of a port initialization.
@@ -472,7 +481,110 @@ public:
                             sm::description("Counts a total number of egress errors. A non-zero value usually indicated a problem with a HW or a SW driver."), {sm::shard_label(_stats_plugin_inst)}),
         });
     }
+    dpdk_device(uint16_t num_queues, bool use_lro, bool enable_fc, std::vector<std::unique_ptr<dpdk_device>>&& bond_slaves)
+        : _port_idx(0)
+        , _num_queues(num_queues)
+        , _home_cpu(engine().cpu_id())
+        , _use_lro(use_lro)
+        , _enable_fc(enable_fc)
+        , _stats_plugin_name("network")
+        , _stats_plugin_inst(std::string("port") + std::to_string(_port_idx))
+        , _xstats(_port_idx)
+        , _bond_slaves(std::move(bond_slaves))
+    {
 
+        /* now initialise the port we will use */
+        int ret = init_bond_port_start();
+        if (ret != 0) {
+            rte_exit(EXIT_FAILURE, "Cannot initialise port %u\n", _port_idx);
+        }
+
+        /* need to defer initialize xstats since NIC specific xstat entries
+           show up only after port initization */
+        _xstats.start();
+
+        _stats_collector.set_callback([&] {
+            rte_eth_stats rte_stats = {};
+            int rc = rte_eth_stats_get(_port_idx, &rte_stats);
+
+            if (rc) {
+                printf("Failed to get port statistics: %s\n", strerror(rc));
+            }
+
+            _stats.rx.good.mcast      =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_multicast_packets);
+            _stats.rx.good.pause_xon  =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_xon_packets);
+            _stats.rx.good.pause_xoff =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_xoff_packets);
+
+            _stats.rx.bad.crc        =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_crc_errors);
+            _stats.rx.bad.len         =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_length_errors) +
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_undersize_errors) +
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_oversize_errors);
+            _stats.rx.bad.total       = rte_stats.ierrors;
+
+            _stats.tx.good.pause_xon  =
+                _xstats.get_value(dpdk_xstats::xstat_id::tx_xon_packets);
+            _stats.tx.good.pause_xoff =
+                _xstats.get_value(dpdk_xstats::xstat_id::tx_xoff_packets);
+
+            _stats.tx.bad.total       = rte_stats.oerrors;
+        });
+
+        // Register port statistics pollers
+        namespace sm = seastar::metrics;
+        _metrics.add_group(_stats_plugin_name, {
+            // Rx Good
+            sm::make_derive("rx_multicast", _stats.rx.good.mcast,
+                            sm::description("Counts a number of received multicast packets."), {sm::shard_label(_stats_plugin_inst)}),
+            // Rx Errors
+            sm::make_derive("rx_crc_errors", _stats.rx.bad.crc,
+                            sm::description("Counts a number of received packets with a bad CRC value. "
+                                            "A non-zero value of this metric usually indicates a HW problem, e.g. a bad cable."), {sm::shard_label(_stats_plugin_inst)}),
+
+            sm::make_derive("rx_dropped", _stats.rx.bad.dropped,
+                            sm::description("Counts a number of dropped received packets. "
+                                            "A non-zero value of this counter indicated the overflow of ingress HW buffers. "
+                                            "This usually happens because of a rate of a sender on the other side of the link is higher than we can process as a receiver."), {sm::shard_label(_stats_plugin_inst)}),
+
+            sm::make_derive("rx_bad_length_errors", _stats.rx.bad.len,
+                            sm::description("Counts a number of received packets with a bad length value. "
+                                            "A non-zero value of this metric usually indicates a HW issue: e.g. bad cable."), {sm::shard_label(_stats_plugin_inst)}),
+            // Coupled counters:
+            // Good
+            sm::make_derive("rx_pause_xon", _stats.rx.good.pause_xon,
+                            sm::description("Counts a number of received PAUSE XON frames (PAUSE frame with a quanta of zero). "
+                                            "When PAUSE XON frame is received our port may resume sending L2 frames. "
+                                            "PAUSE XON frames are sent to resume sending that was previously paused with a PAUSE XOFF frame. If ingress "
+                                            "buffer falls below the low watermark threshold before the timeout configured in the original PAUSE XOFF frame the receiver may decide to send PAUSE XON frame. "
+                                            "A non-zero value of this metric may mean that our sender is bursty and that the spikes overwhelm the receiver on the other side of the link."), {sm::shard_label(_stats_plugin_inst)}),
+
+            sm::make_derive("tx_pause_xon", _stats.tx.good.pause_xon,
+                            sm::description("Counts a number of sent PAUSE XON frames (L2 flow control frames). "
+                                            "A non-zero value of this metric indicates that our ingress path doesn't keep up with the rate of a sender on the other side of the link. "
+                                            "Note that if a sender port respects PAUSE frames this will prevent it from sending from ALL its egress queues because L2 flow control is defined "
+                                            "on a per-link resolution."), {sm::shard_label(_stats_plugin_inst)}),
+
+            sm::make_derive("rx_pause_xoff", _stats.rx.good.pause_xoff,
+                            sm::description("Counts a number of received PAUSE XOFF frames. "
+                                            "A non-zero value of this metric indicates that our egress overwhelms the receiver on the other side of the link and it has to send PAUSE frames to make us stop sending. "
+                                            "Note that if our port respects PAUSE frames a reception of a PAUSE XOFF frame will cause ALL egress queues of this port to stop sending."), {sm::shard_label(_stats_plugin_inst)}),
+
+            sm::make_derive("tx_pause_xoff", _stats.tx.good.pause_xoff,
+                            sm::description("Counts a number of sent PAUSE XOFF frames. "
+                                            "A non-zero value of this metric indicates that our ingress path (SW and HW) doesn't keep up with the rate of a sender on the other side of the link and as a result "
+                                            "our ingress HW buffers overflow."), {sm::shard_label(_stats_plugin_inst)}),
+            // Errors
+            sm::make_derive("rx_errors", _stats.rx.bad.total,
+                            sm::description("Counts the total number of ingress errors: CRC errors, bad length errors, etc."), {sm::shard_label(_stats_plugin_inst)}),
+
+            sm::make_derive("tx_errors", _stats.tx.bad.total,
+                            sm::description("Counts a total number of egress errors. A non-zero value usually indicated a problem with a HW or a SW driver."), {sm::shard_label(_stats_plugin_inst)}),
+        });
+    }
     ~dpdk_device() {
         _stats_collector.cancel();
     }
@@ -1693,6 +1805,230 @@ int dpdk_device::init_port_start()
     return 0;
 }
 
+int dpdk_device::init_bond_port_start()
+{
+    printf("Starting bond port create\n");
+    int retval = rte_eth_bond_create("net_bonding0", BONDING_MODE_ALB,
+                    0 /*SOCKET_ID_ANY*/);
+    if (retval < 0)
+            rte_exit(EXIT_FAILURE, "Faled to create bond port\n");
+    _port_idx = retval;
+
+    rte_eth_dev_info_get(_port_idx, &_dev_info);
+    printf("Got dev info\n");
+
+    //
+    // This is a workaround for a missing handling of a HW limitation in the
+    // DPDK i40e driver. This and all related to _is_i40e_device code should be
+    // removed once this handling is added.
+    //
+    if (sstring("rte_i40evf_pmd") == _dev_info.driver_name ||
+        sstring("rte_i40e_pmd") == _dev_info.driver_name) {
+        printf("Device is an Intel's 40G NIC. Enabling 8 fragments hack!\n");
+        _is_i40e_device = true;
+    }
+
+    if (std::string("rte_vmxnet3_pmd") == _dev_info.driver_name) {
+      printf("Device is a VMWare Virtual NIC. Enabling 16 fragments hack!\n");
+      _is_vmxnet3_device = true;
+    }
+
+    //
+    // Another workaround: this time for a lack of number of RSS bits.
+    // ixgbe PF NICs support up to 16 RSS queues.
+    // ixgbe VF NICs support up to 4 RSS queues.
+    // i40e PF NICs support up to 64 RSS queues.
+    // i40e VF NICs support up to 16 RSS queues.
+    //
+    if (sstring("rte_ixgbe_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)16);
+    } else if (sstring("rte_ixgbevf_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)4);
+    } else if (sstring("rte_i40e_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)64);
+    } else if (sstring("rte_i40evf_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)16);
+    }
+
+    // Clear txq_flags - we want to support all available offload features
+    // except for multi-mempool and refcnt'ing which we don't need
+    _dev_info.default_txconf.txq_flags =
+        ETH_TXQ_FLAGS_NOMULTMEMP | ETH_TXQ_FLAGS_NOREFCOUNT;
+
+    //
+    // Disable features that are not supported by port's HW
+    //
+    if (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_CKSUM)) {
+        _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOXSUMUDP;
+    }
+
+    if (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_CKSUM)) {
+        _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOXSUMTCP;
+    }
+
+    if (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_SCTP_CKSUM)) {
+        _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOXSUMSCTP;
+    }
+
+    if (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_VLAN_INSERT)) {
+        _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOVLANOFFL;
+    }
+
+    if (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_VLAN_INSERT)) {
+        _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOVLANOFFL;
+    }
+
+    if (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_TSO) &&
+        !(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_TSO)) {
+        _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOMULTSEGS;
+    }
+
+    /* for port configuration all features are off by default */
+    rte_eth_conf port_conf = { 0 };
+
+    printf("Port %d: max_rx_queues %d max_tx_queues %d\n",
+           _port_idx, _dev_info.max_rx_queues, _dev_info.max_tx_queues);
+
+    _num_queues = std::min({_num_queues, _dev_info.max_rx_queues, _dev_info.max_tx_queues});
+
+    printf("Port %d: using %d %s\n", _port_idx, _num_queues,
+           (_num_queues > 1) ? "queues" : "queue");
+
+    // Set RSS mode: enable RSS if seastar is configured with more than 1 CPU.
+    // Even if port has a single queue we still want the RSS feature to be
+    // available in order to make HW calculate RSS hash for us.
+    if (smp::count > 1) {
+        if (_dev_info.hash_key_size == 40) {
+            _rss_key = default_rsskey_40bytes;
+        } else if (_dev_info.hash_key_size == 52) {
+            _rss_key = default_rsskey_52bytes;
+        } else if (_dev_info.hash_key_size != 0) {
+            // WTF?!!
+            rte_exit(EXIT_FAILURE,
+                "Port %d: We support only 40 or 52 bytes RSS hash keys, %d bytes key requested",
+                _port_idx, _dev_info.hash_key_size);
+        } else {
+            _rss_key = default_rsskey_40bytes;
+            _dev_info.hash_key_size = 40;
+        }
+
+        port_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
+        port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_PROTO_MASK;
+        if (_dev_info.hash_key_size) {
+            port_conf.rx_adv_conf.rss_conf.rss_key = const_cast<uint8_t *>(_rss_key.data());
+            port_conf.rx_adv_conf.rss_conf.rss_key_len = _dev_info.hash_key_size;
+        }
+    } else {
+        port_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
+    }
+
+    if (_num_queues > 1) {
+        if (_dev_info.reta_size) {
+            // RETA size should be a power of 2
+            assert((_dev_info.reta_size & (_dev_info.reta_size - 1)) == 0);
+
+            // Set the RSS table to the correct size
+            _redir_table.resize(_dev_info.reta_size);
+            _rss_table_bits = std::lround(std::log2(_dev_info.reta_size));
+            printf("Port %d: RSS table size is %d\n",
+                   _port_idx, _dev_info.reta_size);
+        } else {
+            _rss_table_bits = std::lround(std::log2(_dev_info.max_rx_queues));
+        }
+    } else {
+        _redir_table.push_back(0);
+    }
+
+    // Set Rx VLAN stripping
+    if (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_VLAN_STRIP) {
+        port_conf.rxmode.hw_vlan_strip = 1;
+    }
+
+    // Enable HW CRC stripping
+    port_conf.rxmode.hw_strip_crc = 1;
+
+#ifdef RTE_ETHDEV_HAS_LRO_SUPPORT
+    // Enable LRO
+    if (_use_lro && (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_TCP_LRO)) {
+        printf("LRO is on\n");
+        port_conf.rxmode.enable_lro = 1;
+        _hw_features.rx_lro = true;
+    } else
+#endif
+        printf("LRO is off\n");
+
+    // Check that all CSUM features are either all set all together or not set
+    // all together. If this assumption breaks we need to rework the below logic
+    // by splitting the csum offload feature bit into separate bits for IPv4,
+    // TCP and UDP.
+    assert(((_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_IPV4_CKSUM) &&
+            (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_UDP_CKSUM) &&
+            (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_TCP_CKSUM)) ||
+           (!(_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_IPV4_CKSUM) &&
+            !(_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_UDP_CKSUM) &&
+            !(_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_TCP_CKSUM)));
+
+    // Set Rx checksum checking
+    if (  (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_IPV4_CKSUM) &&
+          (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_UDP_CKSUM) &&
+          (_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_TCP_CKSUM)) {
+        printf("RX checksum offload supported\n");
+        port_conf.rxmode.hw_ip_checksum = 1;
+        _hw_features.rx_csum_offload = 1;
+    }
+
+    if ((_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_IPV4_CKSUM)) {
+        printf("TX ip checksum offload supported\n");
+        _hw_features.tx_csum_ip_offload = 1;
+    }
+
+    // TSO is supported starting from DPDK v1.8
+    if (_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_TSO) {
+        printf("TSO is supported\n");
+        _hw_features.tx_tso = 1;
+    }
+
+    // There is no UFO support in the PMDs yet.
+#if 0
+    if (_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_TSO) {
+        printf("UFO is supported\n");
+        _hw_features.tx_ufo = 1;
+    }
+#endif
+
+    // Check that Tx TCP and UDP CSUM features are either all set all together
+    // or not set all together. If this assumption breaks we need to rework the
+    // below logic by splitting the csum offload feature bit into separate bits
+    // for TCP and UDP.
+    assert(((_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_CKSUM) &&
+            (_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_CKSUM)) ||
+           (!(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_CKSUM) &&
+            !(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_CKSUM)));
+
+    if (  (_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_CKSUM) &&
+          (_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_CKSUM)) {
+        printf("TX TCP&UDP checksum offload supported\n");
+        _hw_features.tx_csum_l4_offload = 1;
+    }
+
+    printf("Port %u init ... ", _port_idx);
+    fflush(stdout);
+
+    /*
+     * Standard DPDK port initialisation - config port, then set up
+     * rx and tx rings.
+      */
+    if ((retval = rte_eth_dev_configure(_port_idx, _num_queues, _num_queues,
+                                        &port_conf)) != 0) {
+        return retval;
+    }
+
+    //rte_eth_promiscuous_enable(port_num);
+    printf("done: \n");
+
+    return 0;
+}
+
 void dpdk_device::set_hw_flow_control()
 {
     // Read the port's current/default flow control settings
@@ -1733,8 +2069,17 @@ not_supported:
 void dpdk_device::init_port_fini()
 {
     // Changing FC requires HW reset, so set it before the port is initialized.
-    set_hw_flow_control();
-
+    if (_bond_slaves.empty())
+        set_hw_flow_control();
+    else
+    {
+        for (int i = 0; i < _bond_slaves.size(); i++) {
+                if (rte_eth_bond_slave_add(_port_idx, _bond_slaves[i]->port_idx()) == -1)
+                        rte_exit(-1, "Oooops! adding slave (%u) to bond (%u) failed!\n",
+                                        _bond_slaves[i]->port_idx(), _port_idx);
+        }
+    
+    }
     if (rte_eth_dev_start(_port_idx) < 0) {
         rte_exit(EXIT_FAILURE, "Cannot start port %d\n", _port_idx);
     }
@@ -2271,16 +2616,29 @@ std::unique_ptr<net::device> create_dpdk_net_device(
 
     called = true;
 
+    int count = rte_eth_dev_count();
     // Check that we have at least one DPDK-able port
-    if (rte_eth_dev_count() == 0) {
+    if (count == 0) {
         rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
     } else {
-        printf("ports number: %d\n", rte_eth_dev_count());
+        printf("ports number: %d\n", count);
     }
 
-    return std::make_unique<dpdk::dpdk_device>(port_idx, num_queues, use_lro,
-                                               enable_fc);
+    if (count == 1)
+        return std::make_unique<dpdk::dpdk_device>(port_idx, num_queues, use_lro,
+                                                enable_fc);
+    else
+    {
+        printf("Creating bonded device");
+        std::vector<std::unique_ptr<dpdk::dpdk_device>> devices;
+        devices.reserve(count);
+        for (int i = 0; i < count; ++i)
+            devices.push_back(std::make_unique<dpdk::dpdk_device>(i, num_queues, use_lro, enable_fc));
+        
+        return std::make_unique<dpdk::dpdk_device>(num_queues, use_lro, enable_fc, std::move(devices));
+    }
 }
+
 
 std::unique_ptr<net::device> create_dpdk_net_device(
                                     const hw_config& hw_cfg)

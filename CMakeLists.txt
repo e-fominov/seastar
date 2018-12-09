@@ -636,7 +636,7 @@ if (Seastar_DPDK)
     PUBLIC SEASTAR_HAVE_DPDK)
 
   target_link_libraries (seastar
-    PUBLIC dpdk::dpdk)
+    PUBLIC dpdk::dpdk rte_pmd_bond)
 endif ()
 
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (NOT Seastar_EXCEPTION_SCALABILITY_WORKAROUND))
