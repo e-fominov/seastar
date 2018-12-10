@@ -73,7 +73,7 @@ class connection : public boost::intrusive::list_base_hook<> {
     // null element marks eof
     queue<std::unique_ptr<reply>> _replies { 10 };
     bool _done = false;
-    std::chrono::system_clock::time_point last_input_time;
+    std::chrono::system_clock::time_point _last_input_time;
 public:
     connection(http_server& server, connected_socket&& fd,
             socket_address addr)
@@ -219,7 +219,7 @@ public:
       * Get time of latest parsed input packet
       */
     const std::chrono::system_clock::time_point& get_last_activity_time() const {
-        return last_input_time;
+        return _last_input_time;
     }
 };
 
@@ -257,6 +257,7 @@ private:
         }
         if (count)
             printf("Force shutdowned %d connections\n", count);
+        std::cout << "Active connection count " << _current_connections << std::endl;
     }
 public:
     routes _routes;
