@@ -311,7 +311,6 @@ public:
             do_accepts(which);
         }).then_wrapped([] (auto f) {
             try {
-                std::cerr << "accept completed" << std::endl;
                 f.get();
             } catch (std::exception& ex) {
                 std::cerr << "accept failed: " << ex.what() << std::endl;
