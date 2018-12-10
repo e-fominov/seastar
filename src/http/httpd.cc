@@ -142,7 +142,7 @@ connection::~connection() {
 void connection::on_new_connection() {
     ++_server._total_connections;
     ++_server._current_connections;
-    last_input_time = std::chrono::system_clock::now();
+    _last_input_time = std::chrono::system_clock::now();
     _server._connections.push_back(*this);
 }
 
@@ -163,7 +163,7 @@ future<> connection::read() {
 future<> connection::read_one() {
     _parser.init();
     return _read_buf.consume(_parser).then([this] () mutable {
-        last_input_time = std::chrono::system_clock::now();
+        _last_input_time = std::chrono::system_clock::now();
         if (_parser.eof()) {
             _done = true;
             return make_ready_future<>();
