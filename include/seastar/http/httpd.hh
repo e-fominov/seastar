@@ -258,7 +258,9 @@ private:
         }
         if (count)
             printf("Force shutdowned %d connections\n", count);
-        std::cout << "Active connection count " << _current_connections << "/" << _total_connections << std::endl;
+        std::ostringstream ss;
+        ss << "Active connection count " << _current_connections << "/" << _total_connections << "/" << _connections_being_accepted << "/" << _read_errors;
+        std::cout << ss.str() << std::endl;
     }
 public:
     routes _routes;
@@ -270,11 +272,6 @@ public:
         _addr = addr;
         listen_options lo;
         lo.reuse_address = true;
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
         _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();
