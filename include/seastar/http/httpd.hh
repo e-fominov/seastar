@@ -42,6 +42,7 @@
 #include <vector>
 #include <boost/intrusive/list.hpp>
 #include <seastar/http/routes.hh>
+#include <chrono>
 
 namespace seastar {
 
@@ -72,6 +73,7 @@ class connection : public boost::intrusive::list_base_hook<> {
     // null element marks eof
     queue<std::unique_ptr<reply>> _replies { 10 };
     bool _done = false;
+    std::chrono::system_clock::time_point last_input_time;
 public:
     connection(http_server& server, connected_socket&& fd,
             socket_address addr)
@@ -212,6 +214,13 @@ public:
     output_stream<char>& out() {
         return _write_buf;
     }
+
+    /**
+      * Get time of latest parsed input packet
+      */
+    const std::chrono::system_clock::time_point& get_last_activity_time() const {
+        return last_input_time;
+    }
 };
 
 class http_server_tester;
@@ -226,15 +235,28 @@ class http_server {
     uint64_t _read_errors = 0;
     uint64_t _respond_errors = 0;
     sstring _date = http_date();
-    timer<> _date_format_timer { [this] {_date = http_date();} };
+    timer<> _date_format_timer { [this] {_date = http_date(); remove_inactive_connections();} };
     bool _stopping = false;
     promise<> _all_connections_stopped;
     future<> _stopped = _all_connections_stopped.get_future();
+    std::chrono::seconds _connection_keep_alive_time{30};
 private:
     void maybe_idle() {
         if (_stopping && !_connections_being_accepted && !_current_connections) {
             _all_connections_stopped.set_value();
         }
+    }
+    void remove_inactive_connections() {
+        auto now = std::chrono::system_clock::now();
+        int count = 0;
+        for (connection& c : _connections) {
+            if (now - c.get_last_activity_time() > _connection_keep_alive_time) {
+                c.shutdown();
+                ++count;
+            }
+        }
+        if (count)
+            printf("Force shutdowned %d connections\n", count);
     }
 public:
     routes _routes;

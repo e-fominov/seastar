@@ -40,7 +40,7 @@ macro (seastar_add_app name)
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
   target_link_libraries (${target}
-    PRIVATE -Wl,--whole-archive seastar dpdk rte_pmd_bond -Wl,--no-whole-archive)
+    PRIVATE -Wl,--whole-archive seastar dpdk -Wl,--no-whole-archive)
 
   set_target_properties (${target}
     PROPERTIES
