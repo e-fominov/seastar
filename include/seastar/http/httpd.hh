@@ -257,7 +257,7 @@ private:
         }
         if (count)
             printf("Force shutdowned %d connections\n", count);
-        std::cout << "Active connection count " << _current_connections << std::endl;
+        std::cout << "Active connection count " << _current_connections << "/" << _total_connections << std::endl;
     }
 public:
     routes _routes;
