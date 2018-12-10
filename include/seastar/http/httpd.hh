@@ -315,6 +315,7 @@ public:
                 std::cerr << "accept failed: " << ex.what() << std::endl;
             }
         });
+        listen(_addr);
     }
 
     uint64_t total_connections() const {
