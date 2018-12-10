@@ -758,11 +758,6 @@ private:
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
     std::vector<std::unique_ptr<io_queue>> my_io_queues = {};
-
-
-    // For submiting the actual IO, all we need is the coordinator id. So storing it
-    // separately saves us the pointer access.
-    shard_id _io_coordinator;
     std::unordered_map<dev_t, io_queue*> _io_queues;
     friend io_queue;
 
@@ -847,6 +842,7 @@ private:
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size);
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
     bool _strict_o_direct = true;
+    bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
     bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
     std::thread _task_quota_timer_thread;
@@ -991,6 +987,7 @@ public:
     future<uint64_t> file_size(sstring pathname);
     future<bool> file_exists(sstring pathname);
     future<fs_type> file_system_at(sstring pathname);
+    future<struct statvfs> statvfs(sstring pathname);
     future<> remove_file(sstring pathname);
     future<> rename_file(sstring old_pathname, sstring new_pathname);
     future<> link_file(sstring oldpath, sstring newpath);
