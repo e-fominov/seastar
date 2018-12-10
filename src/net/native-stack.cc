@@ -332,3 +332,9 @@ network_stack_registrator nns_registrator{
 }
 
 }
+
+int hello_native_stack()
+{
+    std::cout << "Hello from native stack. This function is required to tell compiler not remove the native-stack.o file from linking" << std::endl;
+    return 0;
+}
