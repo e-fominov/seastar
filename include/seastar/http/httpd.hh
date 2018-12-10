@@ -271,6 +271,11 @@ public:
         listen_options lo;
         lo.reuse_address = true;
         _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();
     }
