@@ -240,6 +240,7 @@ class http_server {
     promise<> _all_connections_stopped;
     future<> _stopped = _all_connections_stopped.get_future();
     std::chrono::seconds _connection_keep_alive_time{30};
+    ipv4_addr _addr;
 private:
     void maybe_idle() {
         if (_stopping && !_connections_being_accepted && !_current_connections) {
@@ -266,6 +267,7 @@ public:
         _date_format_timer.arm_periodic(1s);
     }
     future<> listen(ipv4_addr addr) {
+        _addr = addr;
         listen_options lo;
         lo.reuse_address = true;
         _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
@@ -291,7 +293,8 @@ public:
             --_connections_being_accepted;
             if (_stopping || f_cs_sa.failed()) {
                 f_cs_sa.ignore_ready_future();
-                maybe_idle();
+                //maybe_idle();
+                listen(_addr);
                 return;
             }
             auto cs_sa = f_cs_sa.get();
