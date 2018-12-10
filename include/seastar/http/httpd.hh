@@ -295,8 +295,7 @@ public:
             --_connections_being_accepted;
             if (_stopping || f_cs_sa.failed()) {
                 f_cs_sa.ignore_ready_future();
-                //maybe_idle();
-                listen(_addr);
+                maybe_idle();
                 return;
             }
             auto cs_sa = f_cs_sa.get();
@@ -312,12 +311,12 @@ public:
             do_accepts(which);
         }).then_wrapped([] (auto f) {
             try {
+                std::cerr << "accept completed" << std::endl;
                 f.get();
             } catch (std::exception& ex) {
                 std::cerr << "accept failed: " << ex.what() << std::endl;
             }
         });
-        listen(_addr);
     }
 
     uint64_t total_connections() const {
