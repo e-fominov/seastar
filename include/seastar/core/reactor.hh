@@ -1182,6 +1182,8 @@ public:
     // For testing:
     void set_stall_detector_report_function(std::function<void ()> report);
     std::function<void ()> get_stall_detector_report_function() const;
+
+    static size_t get_epoll_even_count();
 };
 
 template <typename Func> // signature: bool ()

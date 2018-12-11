@@ -122,6 +122,8 @@
 
 int hello_native_stack();
 
+static size_t epoll_event_count = 0;
+
 namespace seastar {
 
 struct mountpoint_params {
@@ -3564,6 +3566,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     }
     assert(nr != -1);
     for (int i = 0; i < nr; ++i) {
+        ++epoll_event_count;
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
         auto events = evt.events & (EPOLLIN | EPOLLOUT);
@@ -4924,7 +4927,12 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     //
     // But what we have here should be good enough and at least has a well defined meaning.
     return std::chrono::duration_cast<std::chrono::nanoseconds>(sched_clock::now() - _start_time - _total_sleep) -
-           std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
+            std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
+}
+
+size_t reactor::get_epoll_even_count()
+{
+    return epoll_event_count;
 }
 
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
