@@ -298,6 +298,7 @@ public:
             --num_pending_acceptions;
             do_accepts(which);
             if (_stopping || f_cs_sa.failed()) {
+                std::cerr << "ERROR ACCEPTING CONNECTION" << std::endl;
                 f_cs_sa.ignore_ready_future();
                 maybe_idle();
                 return;
