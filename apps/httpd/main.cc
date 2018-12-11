@@ -69,10 +69,12 @@ int main(int ac, char** av) {
     app.add_options()("port", bpo::value<uint16_t>()->default_value(10000),
             "HTTP Server port");
     timer<> epoll_event_count_timer { [] {
-        size_t ec = reactor::get_epoll_even_count();
-        size_t pc = reactor::get_accept_pending_count();
-        std::cout << "Epoll event count: " << ec << std::endl;
-        std::cout << "Accept pending count: " << pc << std::endl;
+        std::cout << "Epoll event count: " << reactor::get_epoll_even_count()
+                  << " Accept pending count: " << reactor::get_accept_pending_count()
+                  << " Rollers: " << reactor::get_num_epoll_rollers()
+                  << " EpollCalls: " << reactor::get_num_started_epoll()
+                  << " EWaits: " << reactor::get_num_epoll_waiting()
+                  << std::endl;
     }};
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();

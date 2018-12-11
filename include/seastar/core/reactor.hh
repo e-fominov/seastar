@@ -1186,6 +1186,9 @@ public:
 
     static size_t get_epoll_even_count();
     static size_t get_accept_pending_count();
+    static size_t get_num_epoll_rollers();
+    static size_t get_num_started_epoll();
+    static size_t get_num_epoll_waiting();
 };
 
 template <typename Func> // signature: bool ()

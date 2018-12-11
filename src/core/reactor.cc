@@ -124,6 +124,9 @@ int hello_native_stack();
 
 static std::atomic<size_t> epoll_event_count = 0;
 std::atomic<size_t> seastar::reactor::accept_pending_count = 0;
+static std::atomic<size_t> num_started_epoll = 0;
+static std::atomic<size_t> num_epoll_rollers = 0;
+static std::atomic<size_t> num_epoll_waiting = 0;
 
 namespace seastar {
 
@@ -3101,9 +3104,17 @@ public:
 class reactor::epoll_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
-    epoll_pollfn(reactor& r) : _r(r) {}
+    epoll_pollfn(reactor& r) : _r(r) {
+        ++num_epoll_rollers;
+    }
+    ~epoll_pollfn() {
+        --num_epoll_rollers;
+    }
     virtual bool poll() final override {
-        return _r.wait_and_process();
+        ++num_epoll_waiting;
+        bool ok = _r.wait_and_process();
+        --num_epoll_waiting;
+        return ok;
     }
     virtual bool pure_poll() override final {
         return poll(); // actually performs work, but triggers no user continuations, so okay
@@ -3440,6 +3451,7 @@ reactor::sleep() {
 
 void
 reactor::start_epoll() {
+    ++num_started_epoll;
     if (!_epoll_poller) {
         _epoll_poller = poller(std::make_unique<epoll_pollfn>(*this));
     }
@@ -4940,7 +4952,18 @@ size_t reactor::get_accept_pending_count()
 {
     return accept_pending_count;
 }
-
+size_t reactor::get_num_epoll_rollers()
+{
+    return num_epoll_rollers;
+}
+size_t reactor::get_num_started_epoll()
+{
+    return num_started_epoll;
+}
+size_t reactor::get_num_epoll_waiting()
+{
+    return num_epoll_waiting;
+}
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
 
 static
