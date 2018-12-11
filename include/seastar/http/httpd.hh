@@ -296,7 +296,9 @@ public:
                 [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
             --_connections_being_accepted;
             --num_pending_acceptions;
+            do_accepts(which);
             if (_stopping || f_cs_sa.failed()) {
+                std::cerr << "ERROR ACCEPTING CONNECTION" << std::endl;
                 f_cs_sa.ignore_ready_future();
                 maybe_idle();
                 return;
@@ -311,7 +313,6 @@ public:
                     std::cerr << "request error " << ex.what() << std::endl;
                 }
             });
-            do_accepts(which);
         }).then_wrapped([] (auto f) {
             try {
                 f.get();
