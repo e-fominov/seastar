@@ -258,9 +258,9 @@ private:
         }
         if (count)
             printf("Force shutdowned %d connections\n", count);
-        std::ostringstream ss;
-        ss << "Active connection count " << _current_connections << "/" << _total_connections << "/" << _connections_being_accepted << "/" << _read_errors;
-        std::cout << ss.str() << std::endl;
+//        std::ostringstream ss;
+//        ss << "Active connection count " << _current_connections << "/" << _total_connections << "/" << _connections_being_accepted << "/" << _read_errors;
+//        std::cout << ss.str() << std::endl;
     }
 public:
     routes _routes;

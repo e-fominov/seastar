@@ -70,7 +70,9 @@ int main(int ac, char** av) {
             "HTTP Server port");
     timer<> epoll_event_count_timer { [] {
         size_t ec = reactor::get_epoll_even_count();
+        size_t pc = reactor::get_accept_pending_count();
         std::cout << "Epoll event count: " << ec << std::endl;
+        std::cout << "Accept pending count: " << pc << std::endl;
     }};
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
