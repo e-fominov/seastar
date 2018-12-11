@@ -42,6 +42,7 @@
 using namespace std::chrono_literals;
 
 std::atomic<size_t> seastar::httpd::http_server::num_pending_acceptions = 0;
+std::atomic<size_t> seastar::httpd::http_server::num_pending_futures = 0;
 
 namespace seastar {
 
