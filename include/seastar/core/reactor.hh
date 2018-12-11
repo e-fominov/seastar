@@ -86,7 +86,6 @@
 #include <osv/condvar.h>
 #include <osv/newpoll.hh>
 #endif
-
 struct _Unwind_Exception;
 extern "C" int _Unwind_RaiseException(struct _Unwind_Exception *h);
 
@@ -847,6 +846,8 @@ private:
     bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
     std::thread _task_quota_timer_thread;
     std::atomic<bool> _dying{false};
+    static std::atomic<size_t> accept_pending_count;
+
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
@@ -1184,6 +1185,7 @@ public:
     std::function<void ()> get_stall_detector_report_function() const;
 
     static size_t get_epoll_even_count();
+    static size_t get_accept_pending_count();
 };
 
 template <typename Func> // signature: bool ()
@@ -1317,7 +1319,10 @@ size_t iovec_len(const iovec* begin, size_t len)
 inline
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
-    return readable(listenfd).then([&listenfd] () mutable {
+    ++accept_pending_count;
+    auto af = readable(listenfd);
+    return af.then([&listenfd] () mutable {
+        --accept_pending_count;
         socket_address sa;
         socklen_t sl = sizeof(&sa.u.sas);
         file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);

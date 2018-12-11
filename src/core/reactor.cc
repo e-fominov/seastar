@@ -122,9 +122,11 @@
 
 int hello_native_stack();
 
-static size_t epoll_event_count = 0;
+static std::atomic<size_t> epoll_event_count = 0;
+std::atomic<size_t> seastar::reactor::accept_pending_count = 0;
 
 namespace seastar {
+
 
 struct mountpoint_params {
     std::string mountpoint = "none";
@@ -4933,6 +4935,10 @@ std::chrono::nanoseconds reactor::total_steal_time() {
 size_t reactor::get_epoll_even_count()
 {
     return epoll_event_count;
+}
+size_t reactor::get_accept_pending_count()
+{
+    return accept_pending_count;
 }
 
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
