@@ -72,6 +72,7 @@ int main(int ac, char** av) {
         std::cout << "Epoll event count: " << reactor::get_epoll_even_count()
                   << " APC: " << reactor::get_accept_pending_count()
                   << " APC/HTTPD: " << http_server::get_num_pending_acceptions()
+                  << " FPC/HTTPD: " << http_server::get_num_pending_futures()
                   << " Rollers: " << reactor::get_num_epoll_rollers()
                   << " EpollCalls: " << reactor::get_num_started_epoll()
                   << " EWaits: " << reactor::get_num_epoll_waiting()
