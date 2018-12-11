@@ -241,6 +241,7 @@ class http_server {
     future<> _stopped = _all_connections_stopped.get_future();
     std::chrono::seconds _connection_keep_alive_time{30};
     ipv4_addr _addr;
+    static std::atomic<size_t> num_pending_acceptions;
 private:
     void maybe_idle() {
         if (_stopping && !_connections_being_accepted && !_current_connections) {
@@ -290,9 +291,11 @@ public:
 
     future<> do_accepts(int which) {
         ++_connections_being_accepted;
+        ++num_pending_acceptions;
         return _listeners[which].accept().then_wrapped(
                 [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
             --_connections_being_accepted;
+            --num_pending_acceptions;
             if (_stopping || f_cs_sa.failed()) {
                 f_cs_sa.ignore_ready_future();
                 maybe_idle();
@@ -341,6 +344,8 @@ public:
         strftime(tmp, sizeof(tmp), "%d %b %Y %H:%M:%S GMT", &tm);
         return tmp;
     }
+    static size_t get_num_pending_acceptions()
+    {return num_pending_acceptions;}
 private:
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;

@@ -70,7 +70,8 @@ int main(int ac, char** av) {
             "HTTP Server port");
     timer<> epoll_event_count_timer { [] {
         std::cout << "Epoll event count: " << reactor::get_epoll_even_count()
-                  << " Accept pending count: " << reactor::get_accept_pending_count()
+                  << " APC: " << reactor::get_accept_pending_count()
+                  << " APC/HTTPD: " << http_server::get_num_pending_acceptions()
                   << " Rollers: " << reactor::get_num_epoll_rollers()
                   << " EpollCalls: " << reactor::get_num_started_epoll()
                   << " EWaits: " << reactor::get_num_epoll_waiting()
