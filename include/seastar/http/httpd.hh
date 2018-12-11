@@ -242,6 +242,7 @@ class http_server {
     std::chrono::seconds _connection_keep_alive_time{30};
     ipv4_addr _addr;
     static std::atomic<size_t> num_pending_acceptions;
+    static std::atomic<size_t> num_pending_futures;
 private:
     void maybe_idle() {
         if (_stopping && !_connections_being_accepted && !_current_connections) {
@@ -302,7 +303,9 @@ public:
                 maybe_idle();
                 return;
             }
+            ++num_pending_futures;
             auto cs_sa = f_cs_sa.get();
+            --num_pending_futures;
             do_accepts(which);
             auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
             conn->process().then_wrapped([conn] (auto&& f) {
@@ -347,6 +350,8 @@ public:
     }
     static size_t get_num_pending_acceptions()
     {return num_pending_acceptions;}
+    static size_t get_num_pending_futures()
+    {return num_pending_futures;}
 private:
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;
