@@ -580,9 +580,7 @@ target_link_libraries (seastar
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
     rt::rt
-    yaml-cpp::yaml-cpp
-    debug Sanitizers::address
-    debug Sanitizers::undefined_behavior)
+    yaml-cpp::yaml-cpp)
 
 target_compile_options (seastar
   PUBLIC -std=${Seastar_CXX_DIALECT})
@@ -595,28 +593,28 @@ if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
     PUBLIC Concepts::concepts)
 endif ()
 
-if (LinuxMembarrier_FOUND)
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAS_MEMBARRIER)
+#if (LinuxMembarrier_FOUND)
+#  target_compile_definitions (seastar
+#    PRIVATE SEASTAR_HAS_MEMBARRIER)
 
-  target_link_libraries (seastar
-    PRIVATE LinuxMembarrier::membarrier)
-endif ()
+#  target_link_libraries (seastar
+#    PRIVATE LinuxMembarrier::membarrier)
+#endif ()
 
-if (Seastar_ALLOC_FAILURE_INJECTION)
-  target_compile_definitions (seastar
-    PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
-endif ()
+#if (Seastar_ALLOC_FAILURE_INJECTION)
+#  target_compile_definitions (seastar
+#    PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
+#endif ()
 
 if (Seastar_STD_OPTIONAL_VARIANT_STRINGVIEW)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW)
 endif ()
 
-if (Sanitizers_FIBER_SUPPORT)
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
-endif ()
+#if (Sanitizers_FIBER_SUPPORT)
+#  target_compile_definitions (seastar
+#    PRIVATE SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
+#endif ()
 
 if (Seastar_ALLOC_PAGE_SIZE)
   target_compile_definitions (seastar
@@ -663,17 +661,17 @@ if (Seastar_LD_FLAGS)
     PRIVATE ${Seastar_LD_FLAGS})
 endif ()
 
-if (Seastar_NUMA)
-  if (NOT numactl_FOUND)
-    message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
-  endif ()
+#if (Seastar_NUMA)
+#  if (NOT numactl_FOUND)
+#    message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
+#  endif ()
 
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAVE_NUMA)
+#  target_compile_definitions (seastar
+#    PRIVATE SEASTAR_HAVE_NUMA)
 
-  target_link_libraries (seastar
-    PRIVATE numactl::numactl)
-endif ()
+#  target_link_libraries (seastar
+#    PRIVATE numactl::numactl)
+#endif ()
 
 if (lz4_HAVE_COMPRESS_DEFAULT)
   target_compile_definitions (seastar
@@ -685,8 +683,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     PUBLIC
       SEASTAR_DEBUG
       SEASTAR_DEBUG_SHARED_PTR
-      SEASTAR_ASAN_ENABLED
-      SEASTAR_THREAD_STACK_GUARDS
+#      SEASTAR_ASAN_ENABLED
+#      SEASTAR_THREAD_STACK_GUARDS
     PRIVATE SEASTAR_DEFAULT_ALLOCATOR)
 endif ()
 
@@ -799,9 +797,9 @@ file (GENERATE
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
   INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in)
 
-file (GENERATE
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
-  INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
+#file (GENERATE
+#  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
+#  INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
 
 #
 # Installation and export.

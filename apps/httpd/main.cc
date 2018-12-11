@@ -64,14 +64,20 @@ void set_routes(routes& r) {
 }
 
 int main(int ac, char** av) {
+    using namespace std::chrono_literals;
     app_template app;
     app.add_options()("port", bpo::value<uint16_t>()->default_value(10000),
             "HTTP Server port");
+    timer<> epoll_event_count_timer { [] {
+        size_t ec = reactor::get_epoll_even_count();
+        std::cout << "Epoll event count: " << ec << std::endl;
+    }};
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new http_server_control();
         auto rb = make_shared<api_registry_builder>("apps/httpd/");
+        epoll_event_count_timer.arm_periodic(1s);
         server->start().then([server] {
             return server->set_routes(set_routes);
         }).then([server, rb]{
