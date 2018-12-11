@@ -296,7 +296,6 @@ public:
                 [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
             --_connections_being_accepted;
             --num_pending_acceptions;
-            do_accepts(which);
             if (_stopping || f_cs_sa.failed()) {
                 std::cerr << "ERROR ACCEPTING CONNECTION" << std::endl;
                 f_cs_sa.ignore_ready_future();
@@ -304,6 +303,7 @@ public:
                 return;
             }
             auto cs_sa = f_cs_sa.get();
+            do_accepts(which);
             auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
             conn->process().then_wrapped([conn] (auto&& f) {
                 delete conn;
