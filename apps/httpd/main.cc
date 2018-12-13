@@ -68,22 +68,22 @@ int main(int ac, char** av) {
     app_template app;
     app.add_options()("port", bpo::value<uint16_t>()->default_value(10000),
             "HTTP Server port");
-    timer<> epoll_event_count_timer { [] {
-        std::cout << "Epoll event count: " << reactor::get_epoll_even_count()
-                  << " APC: " << reactor::get_accept_pending_count()
-                  << " APC/HTTPD: " << http_server::get_num_pending_acceptions()
-                  << " FPC/HTTPD: " << http_server::get_num_pending_futures()
-                  << " Rollers: " << reactor::get_num_epoll_rollers()
-                  << " EpollCalls: " << reactor::get_num_started_epoll()
-                  << " EWaits: " << reactor::get_num_epoll_waiting()
-                  << std::endl;
-    }};
+//    timer<> epoll_event_count_timer { [] {
+//        std::cout << "Epoll event count: " << reactor::get_epoll_even_count()
+//                  << " APC: " << reactor::get_accept_pending_count()
+//                  << " APC/HTTPD: " << http_server::get_num_pending_acceptions()
+//                  << " FPC/HTTPD: " << http_server::get_num_pending_futures()
+//                  << " Rollers: " << reactor::get_num_epoll_rollers()
+//                  << " EpollCalls: " << reactor::get_num_started_epoll()
+//                  << " EWaits: " << reactor::get_num_epoll_waiting()
+//                  << std::endl;
+//    }};
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new http_server_control();
         auto rb = make_shared<api_registry_builder>("apps/httpd/");
-        epoll_event_count_timer.arm_periodic(1s);
+//        epoll_event_count_timer.arm_periodic(1s);
         server->start().then([server] {
             return server->set_routes(set_routes);
         }).then([server, rb]{

@@ -122,11 +122,11 @@
 
 int hello_native_stack();
 
-static std::atomic<size_t> epoll_event_count = 0;
-std::atomic<size_t> seastar::reactor::accept_pending_count = 0;
-static std::atomic<size_t> num_started_epoll = 0;
-static std::atomic<size_t> num_epoll_rollers = 0;
-static std::atomic<size_t> num_epoll_waiting = 0;
+//static std::atomic<size_t> epoll_event_count = 0;
+//std::atomic<size_t> seastar::reactor::accept_pending_count = 0;
+//static std::atomic<size_t> num_started_epoll = 0;
+//static std::atomic<size_t> num_epoll_rollers = 0;
+//static std::atomic<size_t> num_epoll_waiting = 0;
 
 namespace seastar {
 
@@ -3105,15 +3105,15 @@ class reactor::epoll_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
     epoll_pollfn(reactor& r) : _r(r) {
-        ++num_epoll_rollers;
+//        ++num_epoll_rollers;
     }
     ~epoll_pollfn() {
-        --num_epoll_rollers;
+//        --num_epoll_rollers;
     }
     virtual bool poll() final override {
-        ++num_epoll_waiting;
+//        ++num_epoll_waiting;
         bool ok = _r.wait_and_process();
-        --num_epoll_waiting;
+//        --num_epoll_waiting;
         return ok;
     }
     virtual bool pure_poll() override final {
@@ -3451,7 +3451,7 @@ reactor::sleep() {
 
 void
 reactor::start_epoll() {
-    ++num_started_epoll;
+//    ++num_started_epoll;
     if (!_epoll_poller) {
         _epoll_poller = poller(std::make_unique<epoll_pollfn>(*this));
     }
@@ -3580,7 +3580,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     }
     assert(nr != -1);
     for (int i = 0; i < nr; ++i) {
-        ++epoll_event_count;
+//        ++epoll_event_count;
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
         auto events = evt.events & (EPOLLIN | EPOLLOUT);
@@ -4944,26 +4944,26 @@ std::chrono::nanoseconds reactor::total_steal_time() {
             std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
 }
 
-size_t reactor::get_epoll_even_count()
-{
-    return epoll_event_count;
-}
-size_t reactor::get_accept_pending_count()
-{
-    return accept_pending_count;
-}
-size_t reactor::get_num_epoll_rollers()
-{
-    return num_epoll_rollers;
-}
-size_t reactor::get_num_started_epoll()
-{
-    return num_started_epoll;
-}
-size_t reactor::get_num_epoll_waiting()
-{
-    return num_epoll_waiting;
-}
+//size_t reactor::get_epoll_even_count()
+//{
+//    return epoll_event_count;
+//}
+//size_t reactor::get_accept_pending_count()
+//{
+//    return accept_pending_count;
+//}
+//size_t reactor::get_num_epoll_rollers()
+//{
+//    return num_epoll_rollers;
+//}
+//size_t reactor::get_num_started_epoll()
+//{
+//    return num_started_epoll;
+//}
+//size_t reactor::get_num_epoll_waiting()
+//{
+//    return num_epoll_waiting;
+//}
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
 
 static
